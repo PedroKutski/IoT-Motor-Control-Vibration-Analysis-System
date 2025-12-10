@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Controle</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Paho MQTT -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    
+    <!-- Chart.js (Para o gráfico de tempo) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        body { font-family: 'Inter', system-ui, sans-serif; }
+        /* Smooth Fade In */
+        .fade-in { animation: fadeIn 0.5s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* Custom Scrollbar for dark theme */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #111827; }
+        ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex overflow-hidden">
+
+    <!-- Sidebar (Navegação - Estilo Original) -->
+    <aside class="w-64 bg-gray-800 border-r border-gray-700 hidden md:flex flex-col shadow-2xl z-20">
+        <div class="h-16 flex items-center px-6 border-b border-gray-700 bg-gray-800/50 backdrop-blur">
+            <div class="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center text-gray-900 mr-3 shadow-lg shadow-amber-500/20">
+                <i data-lucide="activity" width="20"></i>
+            </div>
+            <span class="font-bold text-lg tracking-wide text-gray-100">MONITOR</span>
+        </div>
+        
+        <nav class="flex-1 px-4 py-6 space-y-2">
+            <!-- Apenas o menu de Monitoramento, sem Configurações -->
+            <a href="#" class="flex items-center gap-3 px-4 py-3 bg-gray-700/50 text-amber-500 border border-gray-600/50 rounded-xl transition-all shadow-inner">
+                <i data-lucide="layout-dashboard" width="18"></i>
+                <span class="font-medium text-sm">Dashboard</span>
+            </a>
+        </nav>
+        
+        <div class="p-4 border-t border-gray-700 bg-gray-800/50">
+            <div id="connection-status" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 transition-all">
+                <div class="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.6)]"></div>
+                <span class="text-xs font-bold" id="status-text">OFFLINE</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col h-screen overflow-y-auto relative bg-gradient-to-br from-gray-900 to-gray-950">
+        
+        <!-- Mobile Header -->
+        <header class="md:hidden h-16 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4 sticky top-0 z-30 shadow-lg">
+            <div class="flex items-center gap-2">
+                <div class="w-6 h-6 bg-amber-500 rounded flex items-center justify-center text-gray-900">
+                    <i data-lucide="activity" width="14"></i>
+                </div>
+                <span class="font-bold text-gray-100">MONITOR</span>
+            </div>
+            <div id="mobile-status" class="w-3 h-3 rounded-full bg-red-500 border-2 border-gray-800"></div>
+        </header>
+
+        <div class="p-6 max-w-7xl mx-auto w-full space-y-6 fade-in pb-10">
+            
+            <!-- Header Area -->
+            <div class="flex justify-between items-end">
+                <div>
+                    <h1 class="text-2xl font-bold text-white tracking-tight">Painel Principal</h1>
+                    <p class="text-gray-400 text-sm mt-1">Status operacional em tempo real</p>
+                </div>
+                <div id="alert-box" class="hidden px-4 py-2 bg-red-500 text-white rounded-lg shadow-lg shadow-red-900/50 flex items-center gap-2 animate-bounce">
+                    <i data-lucide="alert-octagon" width="18"></i>
+                    <span class="font-bold text-sm">ALERTA CRÍTICO</span>
+                </div>
+            </div>
+
+            <!-- Top KPI Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                
+                <!-- Card RPM (Estilo Original Âmbar) -->
+                <div class="bg-gray-800 border border-gray-700 rounded-xl p-5 relative overflow-hidden group hover:border-amber-500/50 transition-all shadow-lg hover:shadow-amber-900/10">
+                    <div class="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                        <i data-lucide="gauge" width="80" height="80"></i>
+                    </div>
+                    <p class="text-gray-400 text-xs font-bold uppercase tracking-wider">Rotação</p>
+                    <div class="flex items-baseline mt-2 gap-1 relative z-10">
+                        <h2 id="rpm-value" class="text-3xl font-mono font-bold text-white">0</h2>
+                        <span class="text-sm text-amber-500 font-bold">RPM</span>
+                    </div>
+                    <!-- Progress Bar for RPM -->
+                    <div class="w-full h-1.5 bg-gray-700 rounded-full mt-4 overflow-hidden">
+                        <div id="rpm-bar" class="h-full bg-amber-500 transition-all duration-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <!-- Card Vibração (AMP) -->
+                <div class="bg-gray-800 border border-gray-700 rounded-xl p-5 hover:border-blue-500/50 transition-all shadow-lg hover:shadow-blue-900/10">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-gray-400 text-xs font-bold uppercase tracking-wider">Vibração (RMS)</p>
+                            <div class="flex items-baseline mt-2 gap-1">
+                                <h2 id="amp-value" class="text-3xl font-mono font-bold text-white">0.000</h2>
+                                <span class="text-sm text-blue-400 font-bold">g</span>
+                            </div>
+                        </div>
+                        <div class="p-2 bg-blue-500/10 rounded-lg text-blue-400 ring-1 ring-blue-500/20">
+                            <i data-lucide="activity" width="20"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card Temperatura -->
+                <div class="bg-gray-800 border border-gray-700 rounded-xl p-5 hover:border-emerald-500/50 transition-all shadow-lg hover:shadow-emerald-900/10">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-gray-400 text-xs font-bold uppercase tracking-wider">Temperatura</p>
+                            <div class="flex items-baseline mt-2 gap-1">
+                                <h2 id="temp-value" class="text-3xl font-mono font-bold text-white">0.0</h2>
+                                <span class="text-sm text-emerald-400 font-bold">°C</span>
+                            </div>
+                        </div>
+                        <div class="p-2 bg-emerald-500/10 rounded-lg text-emerald-400 ring-1 ring-emerald-500/20">
+                            <i data-lucide="thermometer" width="20"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card Frequência -->
+                <div class="bg-gray-800 border border-gray-700 rounded-xl p-5 hover:border-purple-500/50 transition-all shadow-lg hover:shadow-purple-900/10">
+                     <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-gray-400 text-xs font-bold uppercase tracking-wider">Frequência</p>
+                            <div class="flex items-baseline mt-2 gap-1">
+                                <h2 id="freq-value" class="text-3xl font-mono font-bold text-white">0.0</h2>
+                                <span class="text-sm text-purple-400 font-bold">Hz</span>
+                            </div>
+                        </div>
+                        <div class="p-2 bg-purple-500/10 rounded-lg text-purple-400 ring-1 ring-purple-500/20">
+                            <i data-lucide="zap" width="20"></i>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Main Chart Section -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[500px] lg:h-96">
+                <!-- Gráfico de Tempo (Ocupa 2/3) -->
+                <div class="lg:col-span-2 bg-gray-800 border border-gray-700 rounded-xl p-4 flex flex-col shadow-xl relative overflow-hidden">
+                    <div class="flex justify-between items-center mb-4 z-10">
+                        <h3 class="text-sm font-bold text-gray-300 flex items-center gap-2 tracking-wide">
+                            <i data-lucide="line-chart" width="16" class="text-amber-500"></i>
+                            ANÁLISE TEMPORAL
+                        </h3>
+                    </div>
+                    <!-- Background Grid Effect -->
+                    <div class="absolute inset-0 opacity-[0.03] pointer-events-none" 
+                         style="background-image: radial-gradient(#fff 1px, transparent 1px); background-size: 20px 20px;">
+                    </div>
+                    
+                    <div class="flex-1 relative w-full h-full min-h-0 z-10">
+                        <canvas id="mainChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Painel de Controle (Ocupa 1/3) -->
+                <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 flex flex-col justify-between shadow-xl">
+                    <div>
+                        <h3 class="text-sm font-bold text-gray-300 mb-4 border-b border-gray-700 pb-2">COMANDOS</h3>
+                        <p class="text-xs text-gray-500 mb-6">Ações remotas disponíveis para o operador.</p>
+                    </div>
+
+                    <div class="space-y-3">
+                        <button id="btn-melody" class="w-full py-4 bg-gray-700/50 hover:bg-amber-600 hover:text-white text-gray-300 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 border border-gray-600 hover:border-amber-500 hover:shadow-lg hover:shadow-amber-500/20 group" disabled>
+                            <i data-lucide="play-circle" width="18" class="group-hover:scale-110 transition-transform"></i>
+                            INICIAR SEQUÊNCIA
+                        </button>
+                        
+                        <button class="w-full py-4 bg-gray-900/50 text-gray-500 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 border border-gray-800 cursor-not-allowed">
+                            <i data-lucide="stop-circle" width="18"></i>
+                            PARADA DE EMERGÊNCIA
+                        </button>
+                    </div>
+
+                    <div class="mt-6 pt-6 border-t border-gray-700">
+                         <div class="flex justify-between text-xs text-gray-500 font-mono">
+                            <span>CONEXÃO:</span>
+                            <span id="uptime-counter" class="text-amber-500">00:00:00</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Application Script -->
+    <script>
+        // --- 1. Inicialização de Ícones ---
+        lucide.createIcons();
+
+        // --- 2. Configurações MQTT ---
+        // IMPORTANTE: Voltei para o tópico original para funcionar com seu sensor atual
+        const MQTT_BROKER = "broker.hivemq.com";
+        const MQTT_PORT = 8884;
+        const TOPIC_BASE = "motor_jps/"; 
+        let client = null;
+        
+        // --- 3. Configuração do Chart.js ---
+        const ctx = document.getElementById('mainChart').getContext('2d');
+        
+        // Gradiente rico para o gráfico (Estilo Original)
+        const gradientVib = ctx.createLinearGradient(0, 0, 0, 400);
+        gradientVib.addColorStop(0, 'rgba(59, 130, 246, 0.4)'); // Azul forte no topo
+        gradientVib.addColorStop(1, 'rgba(59, 130, 246, 0)');   // Transparente
+
+        const mainChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [], 
+                datasets: [
+                    {
+                        label: 'Vibração (Amp)',
+                        data: [],
+                        borderColor: '#3b82f6', // Azul
+                        backgroundColor: gradientVib,
+                        borderWidth: 2,
+                        pointRadius: 0, // Linha limpa sem pontos
+                        pointHoverRadius: 4,
+                        tension: 0.4, // Curva suave
+                        fill: true,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'RPM (x1000)', 
+                        data: [],
+                        borderColor: '#f59e0b', // Âmbar
+                        backgroundColor: 'transparent',
+                        borderWidth: 2,
+                        borderDash: [5, 5], // Linha tracejada
+                        pointRadius: 0,
+                        tension: 0.4,
+                        yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { labels: { color: '#9ca3af', font: { size: 11, family: "'Inter', sans-serif" } } },
+                    tooltip: {
+                        backgroundColor: 'rgba(17, 24, 39, 0.9)',
+                        titleColor: '#f59e0b',
+                        bodyColor: '#fff',
+                        borderColor: '#374151',
+                        borderWidth: 1
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: '#374151', tickLength: 0 },
+                        ticks: { color: '#6b7280', maxTicksLimit: 8, font: { size: 10 } }
+                    },
+                    y: {
+                        type: 'linear', display: true, position: 'left',
+                        grid: { color: 'rgba(55, 65, 81, 0.5)' },
+                        ticks: { color: '#3b82f6', font: { size: 10 } },
+                        title: { display: true, text: 'Vibração (g)', color: '#3b82f6', font: { size: 10 } }
+                    },
+                    y1: {
+                        type: 'linear', display: true, position: 'right',
+                        grid: { drawOnChartArea: false },
+                        ticks: { color: '#f59e0b', font: { size: 10 } },
+                        title: { display: true, text: 'RPM', color: '#f59e0b', font: { size: 10 } }
+                    }
+                },
+                animation: false
+            }
+        });
+
+        // --- 4. Variáveis de Estado ---
+        const els = {
+            rpm: document.getElementById('rpm-value'),
+            rpmBar: document.getElementById('rpm-bar'),
+            amp: document.getElementById('amp-value'),
+            temp: document.getElementById('temp-value'),
+            freq: document.getElementById('freq-value'),
+            statusBox: document.getElementById('connection-status'),
+            statusText: document.getElementById('status-text'),
+            alertBox: document.getElementById('alert-box'),
+            btnMelody: document.getElementById('btn-melody'),
+            uptime: document.getElementById('uptime-counter'),
+            mobileStatus: document.getElementById('mobile-status')
+        };
+
+        let startTime = Date.now();
+        
+        // --- 5. Lógica MQTT ---
+
+        function updateUI(connected) {
+            if (connected) {
+                // Estilo Online (Verde Brilhante)
+                els.statusBox.className = "flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 transition-all shadow-[0_0_15px_rgba(16,185,129,0.1)]";
+                els.statusBox.querySelector('div').className = "w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981]";
+                els.statusText.innerText = "ONLINE";
+                els.mobileStatus.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]";
+                
+                // Ativar Botão
+                els.btnMelody.disabled = false;
+                els.btnMelody.classList.remove('opacity-50', 'cursor-not-allowed');
+            } else {
+                // Estilo Offline
+                els.statusBox.className = "flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 transition-all";
+                els.statusBox.querySelector('div').className = "w-2 h-2 rounded-full bg-red-500 animate-pulse";
+                els.statusText.innerText = "OFFLINE";
+                els.mobileStatus.className = "w-3 h-3 rounded-full bg-red-500";
+                
+                // Desativar Botão
+                els.btnMelody.disabled = true;
+                els.btnMelody.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        function addDataToChart(amp, rpm) {
+            const now = new Date();
+            const timeLabel = now.getHours() + ":" + now.getMinutes() + ":" + now.getSeconds();
+
+            mainChart.data.labels.push(timeLabel);
+            mainChart.data.datasets[0].data.push(amp);
+            mainChart.data.datasets[1].data.push(rpm / 1000); 
+
+            if (mainChart.data.labels.length > 30) {
+                mainChart.data.labels.shift();
+                mainChart.data.datasets[0].data.shift();
+                mainChart.data.datasets[1].data.shift();
+            }
+            mainChart.update();
+        }
+
+        function connectMQTT() {
+            const clientId = "Monitor_" + parseInt(Math.random() * 10000);
+            client = new Paho.MQTT.Client(MQTT_BROKER, MQTT_PORT, clientId);
+
+            client.onConnectionLost = (obj) => {
+                console.warn("Conexão perdida:", obj.errorMessage);
+                updateUI(false);
+                setTimeout(connectMQTT, 3000);
+            };
+
+            client.onMessageArrived = (msg) => {
+                const topic = msg.destinationName;
+                const payload = msg.payloadString;
+                const val = parseFloat(payload);
+
+                switch (topic) {
+                    case `${TOPIC_BASE}rpm`:
+                        els.rpm.innerText = parseInt(val);
+                        // Barra com cor dinâmica se RPM for muito alto
+                        let pct = Math.min((val / 3000) * 100, 100);
+                        els.rpmBar.style.width = `${pct}%`;
+                        if(val > 2500) els.rpmBar.classList.replace('bg-amber-500', 'bg-red-500');
+                        else els.rpmBar.classList.replace('bg-red-500', 'bg-amber-500');
+                        break;
+                    
+                    case `${TOPIC_BASE}amp`:
+                        els.amp.innerText = val.toFixed(3);
+                        let currentRPM = parseInt(els.rpm.innerText) || 0;
+                        addDataToChart(val, currentRPM);
+                        break;
+
+                    case `${TOPIC_BASE}temp`:
+                        els.temp.innerText = val.toFixed(1);
+                        break;
+                    
+                    case `${TOPIC_BASE}freq`:
+                        els.freq.innerText = val.toFixed(1);
+                        break;
+
+                    case `${TOPIC_BASE}alerta`:
+                        if (parseInt(payload) === 1) {
+                            els.alertBox.classList.remove('hidden');
+                            els.alertBox.classList.add('flex');
+                        } else {
+                            els.alertBox.classList.add('hidden');
+                            els.alertBox.classList.remove('flex');
+                        }
+                        break;
+                }
+            };
+
+            client.connect({
+                onSuccess: () => {
+                    console.log("Conectado");
+                    updateUI(true);
+                    client.subscribe(`${TOPIC_BASE}#`);
+                },
+                onFailure: (e) => {
+                    updateUI(false);
+                    setTimeout(connectMQTT, 3000);
+                },
+                useSSL: true
+            });
+        }
+
+        // --- 6. Eventos ---
+        els.btnMelody.addEventListener('click', () => {
+            if (client) {
+                const message = new Paho.MQTT.Message("PLAY");
+                message.destinationName = `${TOPIC_BASE}cmd`;
+                client.send(message);
+                
+                // Animação de clique
+                const btn = els.btnMelody;
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '<span class="animate-pulse">Enviando...</span>';
+                setTimeout(() => { btn.innerHTML = originalText; }, 1000);
+            }
+        });
+
+        // Uptime Clock
+        setInterval(() => {
+            const diff = Math.floor((Date.now() - startTime) / 1000);
+            const h = Math.floor(diff / 3600).toString().padStart(2, '0');
+            const m = Math.floor((diff % 3600) / 60).toString().padStart(2, '0');
+            const s = (diff % 60).toString().padStart(2, '0');
+            els.uptime.innerText = `${h}:${m}:${s}`;
+        }, 1000);
+
+        // Start
+        connectMQTT();
+
+    </script>
+</body>
+</html>
